@@ -15,8 +15,8 @@ class TestUserLogin:
         response = api_manager.admin_steps.login_user(login_user_request)
 
         # Проверяем имя вошедшего пользователя и административную роль.
-        assert login_user_request.username == response.user.username
-        assert response.user.role == "ROLE_ADMIN"
+        assert login_user_request.username == response.user.username, f'При входе администратора API вернул другое имя: ожидалось {login_user_request.username!r}, получено {response.user.username!r}'
+        assert response.user.role == "ROLE_ADMIN", f'После входа администратора ожидалась роль ROLE_ADMIN, получена {response.user.role!r}'
 
     # Проверяем вход созданного пользователя и его обычную роль.
     def test_login_user(self, api_manager, create_user_request):
@@ -24,6 +24,6 @@ class TestUserLogin:
         response = api_manager.admin_steps.login_user(create_user_request)
 
         # Проверяем имя вошедшего пользователя и роль ROLE_USER.
-        assert create_user_request.username == response.user.username
-        assert response.user.role == "ROLE_USER"
+        assert create_user_request.username == response.user.username, f'При входе пользователя API вернул другое имя: ожидалось {create_user_request.username!r}, получено {response.user.username!r}'
+        assert response.user.role == "ROLE_USER", f'После входа обычного пользователя ожидалась роль ROLE_USER, получена {response.user.role!r}'
 

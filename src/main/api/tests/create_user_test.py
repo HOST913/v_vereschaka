@@ -24,12 +24,12 @@ class TestCreateUser():
 
 
         # Сверяем имя и роль созданного пользователя с запросом.
-        assert create_user_request.username == response.username
-        assert create_user_request.role == response.role
+        assert create_user_request.username == response.username, f'Имя созданного пользователя не совпадает с запросом: ожидалось {create_user_request.username!r}, получено {response.username!r}'
+        assert create_user_request.role == response.role, f'Роль созданного пользователя не совпадает с запросом: ожидалась {create_user_request.role!r}, получена {response.role!r}'
 
         # Проверяем, что пользователь сохранён в БД.
         user_from_db = User.get_user_by_username(db_session, create_user_request.username)
-        assert user_from_db.username == create_user_request.username, 'Созданного пользователя нет в бд'
+        assert user_from_db.username == create_user_request.username, f'Имя пользователя в БД не совпадает с запросом: ожидалось {create_user_request.username!r}, получено {user_from_db.username!r}'
 
     # Проверяем отказ в создании пользователя с некорректными данными.
     @pytest.mark.parametrize(
@@ -54,7 +54,7 @@ class TestCreateUser():
         # Проверяем отсутствие пользователя после отклонённого запроса.
         user_from_db = User.get_user_by_username(db_session, create_user_request.username)
 
-        assert user_from_db is None, 'Пользователь создан Ошибка'
+        assert user_from_db is None, f'Пользователь {create_user_request.username!r} появился в БД после отклонённого запроса на создание'
 
 
 

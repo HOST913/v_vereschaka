@@ -5,96 +5,44 @@ from sqlalchemy.orm import Session
 from src.main.api.db.crud.account_crud import AccountCrudDb
 from src.main.api.db.crud.credit_crud import CreditCrudDb
 from src.main.api.classes.api_manager import ApiManager
-from src.main.api.models.request_model.create_user_request import CreateUserRequest
-from src.main.api.models.request_model.credit_user_request import CreditUserRequest
 
 
 @pytest.mark.api
 class TestCreditUser:
-    # Проверяем выдачу кредита на собственный счёт разрешённой роли.
-    def test_credit_user_valid(self,db_session: Session,api_manager: ApiManager, credit_user: CreateUserRequest):
-        # Создаём собственный счёт пользователя
-        response = api_manager.user_steps.create_account(credit_user)
-        assert response.balance == 0
-        account_id = response.id
+    # Выдаём кредит на подготовленный собственный счёт разрешённой роли.
+    def test_credit_user_valid(self,db_session: Session,api_manager: ApiManager, credit_setup: dict):
+        response = api_manager.user_steps.account_credit(credit_setup["request"], credit_setup["user"])
+        assert response.balance == credit_setup["expected_balance"], f'После выдачи кредита API должен вернуть баланс {credit_setup["expected_balance"]}, получен {response.balance}'
+        assert response.amount == credit_setup["request"].amount, f'Ожидалась сумма кредита {credit_setup["request"].amount}, получена {response.amount}'
+        assert response.id == credit_setup["account"].id, f'Кредит должен быть выдан на счёт {credit_setup["account"].id}, получен {response.id}'
+        assert response.termMonths == credit_setup["request"].termMonths, f'Ожидался срок {credit_setup["request"].termMonths} месяцев, получен {response.termMonths}'
 
-        # Проверяем, что у нового банковского счёта ещё нет кредитов.
-        credits_before = CreditCrudDb.get_credits_by_account_id(db_session, account_id)
-        assert credits_before == []
-
-        # Запрашиваем кредит 5000 на 12 месяцев
-        user_credit_request = CreditUserRequest(accountId=account_id, amount=5000, termMonths=12)
-        response = api_manager.user_steps.account_credit(user_credit_request, credit_user)
-        assert response.balance == 5000
-        assert response.amount == user_credit_request.amount
-        assert response.id == user_credit_request.accountId
-        assert response.termMonths == user_credit_request.termMonths
-        # Сохраняем ID выданного кредита для поиска его записи в БД.
-        credit_id = response.creditId
-
-        # Сверяем сохранённый кредит со счётом, суммой и сроком заявки.
-        credit_from_db = CreditCrudDb.get_credit_by_id(db_session, credit_id)
-        assert credit_from_db is not None
-        assert credit_from_db.account_id == user_credit_request.accountId
-        assert credit_from_db.amount == user_credit_request.amount
-        assert credit_from_db.term_months == user_credit_request.termMonths
-
-
-        # Проверяем, что у счёта создан ровно один кредит
-        credits_after = CreditCrudDb.get_credits_by_account_id(db_session, account_id)
-        assert len(credits_after) == 1, 'У счёта должно быть ровно одно кредитное обязательство'
-        assert credits_after[0].id == credit_id, 'Найден другой кредит'
-
-        # Проверяем зачисление кредитных денег на банковский счёт
-        account_from_db = AccountCrudDb.get_account_by_id(db_session, account_id)
-        assert account_from_db is not None, 'Счёт не найден в БД'
-        assert account_from_db.balance == 5000, 'Кредитные деньги не зачислены на счёт'
-
-
-
-    # Проверяем отказ обычному пользователю и отсутствие изменений в БД.
-    def test_credit_user_invalid(self,db_session: Session,api_manager: ApiManager, create_user_request: CreateUserRequest):
-        # Создаём собственный счёт пользователя
-        response = api_manager.user_steps.create_account(create_user_request)
-        assert response.balance == 0
-        account_id = response.id
-
-        # Проверяем, что у счёта ещё нет кредитов
-        credits_before = CreditCrudDb.get_credits_by_account_id(db_session, account_id)
-        assert credits_before == [], 'У счёта уже есть кредит'
-
-        # Сохраняем баланс счёта из БД до заявки
-        account_before = AccountCrudDb.get_account_by_id(db_session, account_id)
-        assert account_before is not None, 'Счёт не найден в БД'
-        balance_before = account_before.balance
-
-        # Сохраняем баланс счёта до заявки
-        balance = api_manager.user_steps.get_account(account_id=account_id, create_user_request=create_user_request)
-        setup_balance = balance.balance
-
-        # Запрашиваем кредит 5000 и ожидаем отказ 403 для обычного пользователя
-        user_credit_request = CreditUserRequest(accountId=account_id, amount=5000, termMonths=12)
-        api_manager.user_steps.account_credit_invalid(user_credit_request, create_user_request)
-
-
-        # Повторно читаем баланс счёта после отказа
-        balance = api_manager.user_steps.get_account(account_id=account_id, create_user_request=create_user_request)
-        teardown_balance = balance.balance
-        assert setup_balance == teardown_balance
-
-        # Обновляем ранее загруженные данные сессии
+        # Сверяем выданный кредит с заявкой и счётом в БД.
         db_session.expire_all()
+        credit_from_db = CreditCrudDb.get_credit_by_id(db_session, response.creditId)
+        assert credit_from_db is not None, f'Выданный кредит {response.creditId} не найден в БД'
+        assert credit_from_db.account_id == credit_setup["account"].id, f'Кредит в БД должен быть связан со счётом {credit_setup["account"].id}, получен {credit_from_db.account_id}'
+        assert credit_from_db.amount == credit_setup["request"].amount, f'Сумма кредита в БД должна быть {credit_setup["request"].amount}, получена {credit_from_db.amount}'
+        assert credit_from_db.term_months == credit_setup["request"].termMonths, f'Срок кредита в БД должен быть {credit_setup["request"].termMonths}, получен {credit_from_db.term_months}'
 
-        # Проверяем, что баланс счёта в БД не изменился
-        account_after = AccountCrudDb.get_account_by_id(db_session, account_id)
-        assert account_after is not None, 'Счёт не найден в БД'
-        assert account_after.balance == balance_before, 'После отказа баланс счёта изменился'
+        # Проверяем единственное кредитное обязательство и зачисление денег.
+        credits_after = CreditCrudDb.get_credits_by_account_id(db_session, credit_setup["account"].id)
+        assert len(credits_after) == 1, f'У счёта {credit_setup["account"].id} должен быть один кредит, найдено {len(credits_after)}'
+        assert credits_after[0].id == response.creditId, f'Ожидался кредит {response.creditId}, найден {credits_after[0].id}'
+        account_from_db = AccountCrudDb.get_account_by_id(db_session, credit_setup["account"].id)
+        assert account_from_db is not None, f'Счёт {credit_setup["account"].id} не найден в БД после выдачи кредита'
+        assert account_from_db.balance == credit_setup["expected_balance"], f'После выдачи кредита баланс в БД должен быть {credit_setup["expected_balance"]}, получен {account_from_db.balance}'
 
-        # Проверяем, что кредит не появился в БД
-        credits_after = CreditCrudDb.get_credits_by_account_id(db_session, account_id)
-        assert credits_after == [], 'Несмотря на отказ, кредит появился в БД'
+    # Проверяем отказ обычному пользователю и отсутствие изменений.
+    def test_credit_user_invalid(self,db_session: Session,api_manager: ApiManager, forbidden_credit_setup: dict):
+        api_manager.user_steps.account_credit_invalid(forbidden_credit_setup["request"], forbidden_credit_setup["user"])
 
-
-
-
-
+        # Сравниваем балансы после отказа со снимками API и БД из фикстуры.
+        account_after = api_manager.user_steps.get_account(account_id=forbidden_credit_setup["account"].id, create_user_request=forbidden_credit_setup["user"])
+        assert account_after.balance == forbidden_credit_setup["balance_before"], f'После отказа баланс по API должен остаться {forbidden_credit_setup["balance_before"]}, получен {account_after.balance}'
+        db_session.expire_all()
+        account_after_db = AccountCrudDb.get_account_by_id(db_session, forbidden_credit_setup["account"].id)
+        assert account_after_db is not None, f'Счёт {forbidden_credit_setup["account"].id} не найден в БД после отказа в кредите'
+        assert account_after_db.balance == forbidden_credit_setup["balance_before_db"], f'После отказа баланс в БД должен остаться {forbidden_credit_setup["balance_before_db"]}, получен {account_after_db.balance}'
+        credits_after = CreditCrudDb.get_credits_by_account_id(db_session, forbidden_credit_setup["account"].id)
+        assert credits_after == [], f'После отказа у счёта {forbidden_credit_setup["account"].id} появились кредиты: найдено {len(credits_after)}'
